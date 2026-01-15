@@ -1,0 +1,26 @@
+{
+  "searchQueries": [
+    { "query": "office chair" },
+    { "query": "dining chair" },
+    { "query": "gaming chair" },
+
+    { "query": "sofa set" },
+    { "query": "sofa cum bed" },
+    { "query": "recliner sofa" },
+
+    { "query": "double bed" },
+    { "query": "queen size bed" },
+    { "query": "king size bed" },
+
+    { "query": "study table" },
+    { "query": "dining table" },
+    { "query": "coffee table" },
+
+    { "query": "wardrobe" },
+    { "query": "bookshelf" },
+    { "query": "shoe rack" }
+  ],
+  "settings": {
+    "minRating": 3.5
+  }
+}

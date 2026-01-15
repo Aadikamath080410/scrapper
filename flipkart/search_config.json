@@ -1,0 +1,34 @@
+{
+    "searchQueries": [
+        {
+            "query": "office chair"
+        },
+        {
+            "query": "gaming chair"
+        },
+        {
+            "query": "coffee table"
+        },
+        {
+            "query": "dining table"
+        },
+        {
+            "query": "sofa set"
+        },
+        {
+            "query": "wardrobe"
+        },
+        {
+            "query": "double bed"
+        },
+        {
+            "query": "king size bed"
+        },
+        {
+            "query": "queen size bed"
+        }
+    ],
+    "settings": {
+        "minRating": 3.5
+    }
+}
