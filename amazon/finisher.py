@@ -68,8 +68,8 @@ def process_output_files():
     combined_products = []
     product_id_counter = 1
     
-    # Get all JSON files sorted
-    json_files = sorted([f for f in output_dir.glob('amazon_*.json')])
+    # Get all JSON files sorted (exclude combined file to avoid reprocessing)
+    json_files = sorted([f for f in output_dir.glob('amazon_*.json') if 'combined' not in f.name])
     
     print(f"Found {len(json_files)} files to process")
     
@@ -82,9 +82,15 @@ def process_output_files():
                 products = json.load(f)
             
             for product in products:
+                product_name = clean_text(product.get('Product Name', ''))
+                
+                # Skip products with empty names
+                if not product_name:
+                    continue
+                
                 processed_product = {
                     'ID': f'A-{product_id_counter:04d}',
-                    'Name': clean_text(product.get('Product Name', '')),
+                    'Name': product_name,
                     'Dimension': clean_text(product.get('Dimensions', '')),
                     'Price': product.get('Price', ''),
                     'Type': get_type_from_subtype(subtype),
