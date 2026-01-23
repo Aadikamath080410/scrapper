@@ -17,8 +17,8 @@ TIMEOUT = 30
 RETRIES = 3
 
 # Reduce defaults to limit per-category scraping to ~200-250 items
-MIN_PRODUCTS = 200
-MAX_PRODUCTS = 250
+MIN_PRODUCTS = 100
+MAX_PRODUCTS = 100
 MAX_RETRIES = 3
 
 # Optional proxy list (leave empty to not use proxies). Format examples:

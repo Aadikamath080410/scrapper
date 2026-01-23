@@ -36,11 +36,11 @@ def main():
     limit = args.limit if args.limit is not None else config.MIN_PRODUCTS
 
     for query in queries:
-        print(f"\n🟦 FLIPKART | {query}")
+        print(f"\n[FLIPKART] {query}")
         results = []
 
         links = get_product_links(query)
-        print(f"🔗 Found {len(links)} product links for query: {query}")
+        print(f"[LINKS] Found {len(links)} product links for query: {query}")
 
         for idx, link in enumerate(links, start=1):
             if args.verbose or idx % 10 == 0:
@@ -50,7 +50,7 @@ def main():
                 raw = scrape_product(link)
                 clean = normalize(raw)
             except Exception as e:
-                print(f"⚠️ FLIPKART | Error scraping {link}: {e}")
+                print(f"[WARNING] FLIPKART | Error scraping {link}: {e}")
                 continue
 
             if not clean:
@@ -73,10 +73,7 @@ def main():
 
         final = deduplicate(results)
         if not final:
-            print(f"⚠️ FLIPKART | No products collected for '{query}' (skipping save).")
+            print(f"[WARNING] FLIPKART | No products collected for '{query}' (skipping save).")
             continue
         save_json(final, "flipkart", query)
-        print(f"✅ Flipkart {query}: {len(final)} products")
-
-if __name__ == "__main__":
-    main()
+        print(f"[SUCCESS] Flipkart {query}: {len(final)} products")

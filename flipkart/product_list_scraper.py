@@ -20,7 +20,7 @@ def _fetch_with_playwright(url):
     try:
         from playwright.sync_api import sync_playwright
     except Exception:
-        print("⚠️ Playwright not available. Install with: pip install playwright && playwright install")
+        print("[WARNING] Playwright not available. Install with: pip install playwright && playwright install")
         return None
 
     try:

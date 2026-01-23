@@ -57,79 +57,140 @@ def scrape_product(url):
     tries = 0
     while tries < RETRIES:
         try:
-            proxy = random.choice(PROXIES) if PROXIES else None
-            proxies = {"http": proxy, "https": proxy} if proxy else None
-            res = _session.get(url, timeout=TIMEOUT, proxies=proxies)
+            soup = None
             
-            if is_blocked(res.text):
-                print(f"⚠️ FLIPKART | Block detected when fetching product page: {url}")
-                _save_debug_product_html(pid, url, res.text)
-
-                if USE_PLAYWRIGHT:
-                     print(f"ℹ️ FLIPKART | Attempting Playwright fallback for product page: {url}")
-                     html = _fetch_with_playwright(url)
-                     if html and not is_blocked(html):
-                         soup = BeautifulSoup(html, "html.parser")
-                         break
+            # Use Playwright if enabled (for JavaScript rendering)
+            if USE_PLAYWRIGHT:
+                print(f"ℹ️ FLIPKART | Fetching product page with Playwright: {url}")
+                html = _fetch_with_playwright(url)
+                if html and not is_blocked(html):
+                    soup = BeautifulSoup(html, "html.parser")
+            
+            # Fallback to regular requests if Playwright failed or disabled
+            if not soup:
+                proxy = random.choice(PROXIES) if PROXIES else None
+                proxies = {"http": proxy, "https": proxy} if proxy else None
+                res = _session.get(url, timeout=TIMEOUT, proxies=proxies)
                 
+                if is_blocked(res.text):
+                    print(f"⚠️ FLIPKART | Block detected when fetching product page: {url}")
+                    _save_debug_product_html(pid, url, res.text)
+                    
+                    tries += 1
+                    time.sleep((2 ** tries) + random.uniform(0.5, 1.5))
+                    continue
+                
+                if res.status_code != 200:
+                    print(f"⚠️ FLIPKART | Non-200 response ({res.status_code}) for product page: {url}")
+                    tries += 1
+                    time.sleep((2 ** tries) + random.uniform(0.5, 1.5))
+                    continue
+                
+                soup = BeautifulSoup(res.text, "html.parser")
+            
+            # If soup is still None, skip this product
+            if not soup:
                 tries += 1
                 time.sleep((2 ** tries) + random.uniform(0.5, 1.5))
                 continue
-            
-            if res.status_code != 200:
-                print(f"⚠️ FLIPKART | Non-200 response ({res.status_code}) for product page: {url}")
-                if USE_PLAYWRIGHT:
-                    html = _fetch_with_playwright(url)
-                    if html:
-                        soup = BeautifulSoup(html, "html.parser")
-                    else:
-                        soup = BeautifulSoup(res.text, "html.parser")
-                else:
-                    soup = BeautifulSoup(res.text, "html.parser")
-            
-            if 'soup' not in locals():
-                soup = BeautifulSoup(res.text, "html.parser")
 
             def safe_text(sel):
                 el = soup.select_one(sel)
                 return el.get_text(strip=True) if el else None
 
+            def extract_meta(attr, content_attr='content'):
+                """Extract value from meta tag"""
+                meta = soup.find('meta', {attr: True})
+                if meta and meta.get(content_attr):
+                    return meta.get(content_attr)
+                return None
+
+            def extract_meta_content(property_or_name, value):
+                """Extract content from meta tag by property or name"""
+                meta = soup.find('meta', {property_or_name: value})
+                if meta and meta.get('content'):
+                    return meta.get('content')
+                return None
+
             # Product details
-            name = safe_text('span.B_NuCI') or safe_text('h1') or "NA"
+            name = safe_text('span.B_NuCI') or safe_text('h1') or safe_text('[data-qa="productTitle"]') or "NA"
             
-            rating = safe_text('div._3LWZlK')
+            # Rating - try multiple approaches (may not be available in static HTML)
+            rating = None
+            rating_selectors = [
+                'span[data-test-id="average-rating"]',  # Most reliable
+                'span._2d4ZZ5',                          # Rating display class
+                'div._3LWZlK',                           # Old class
+                '[data-qa="reviewRatingDiv"]',
+                'span[data-qa="cellReviewRating"]',
+                'span.hGSR34',                           # Rating text class
+                'div.qMqkX2 span:first-child'           # Context with value
+            ]
+            for sel in rating_selectors:
+                elem = soup.select_one(sel)
+                if elem:
+                    val = elem.get_text(strip=True)
+                    # Clean up the value - should be a number, possibly with "★" or similar
+                    val_clean = val.replace('★', '').replace('Rating:', '').strip()
+                    if val_clean and val_clean not in ('0', '', 'NA'):
+                        try:
+                            float(val_clean)
+                            rating = val_clean
+                            break
+                        except:
+                            pass
             
-            # Price (Try multiple selectors from new to old)
+            # Set default to 'NA' if not found (ratings may not be available in static HTML)
+            if not rating:
+                rating = 'NA'
+            
+            # Price extraction (prioritize meta tags, then DOM)
             price = None
-            price_selectors = [
-                'div.Nx9bqj',       # New common class
-                'div.hZ3P6w',       # Observed in debug
-                'div._30jeq3._16Jk6d', # Old specific
-                'div._30jeq3'       # Old generic
-            ]
-            for sel in price_selectors:
-                val = safe_text(sel)
-                if val:
-                    price = val
-                    break
+            # Try meta description first (usually contains "Rs.XXXX")
+            meta_desc = extract_meta_content('property', 'og:description')
+            if meta_desc and 'Rs.' in meta_desc:
+                import re as regex_module
+                price_match = regex_module.search(r'Rs\.(\d+(?:,\d+)?)', meta_desc)
+                if price_match:
+                    price = 'Rs.' + price_match.group(1)
             
-            # Image
-            img = None
-            img_selectors = [
-                 'img.xD43kG',      # Observed on main image
-                 'img.DByuf4',      # Common new class
-                 'img.UCc1lI',      # Observed but generic
-                 'img._396cs4',     # Old
-                 'img.q6DClP'       # Old
-            ]
-            for sel in img_selectors:
-                img_tag = soup.select_one(sel)
-                if img_tag and img_tag.get('src'):
-                    # Filter out tiny base64 or svg if possible, though selectors usually target real imgs
-                    src = img_tag.get('src')
-                    if src.startswith('http'):
-                        img = src
+            # Fallback to DOM selectors
+            if not price:
+                price_selectors = [
+                    'div.Nx9bqj',           # Current class
+                    'div.hZ3P6w',           # Variant
+                    '[data-qa="finalPrice"]', # Data attribute
+                    'div._30jeq3._16Jk6d',  # Old specific
+                    'div._30jeq3'           # Old generic
+                ]
+                for sel in price_selectors:
+                    val = safe_text(sel)
+                    if val and val != '0':
+                        price = val
                         break
+            
+            # Image extraction (prioritize og:image meta tag)
+            img = None
+            og_image = extract_meta_content('property', 'og:image')
+            if og_image and og_image.startswith('http'):
+                img = og_image
+            
+            # Fallback to DOM selectors
+            if not img:
+                img_selectors = [
+                    'img.xD43kG',       # Observed main image class
+                    'img[alt*="product"]',  # Alt attribute match
+                    'img.DByuf4',       # Common class
+                    'img.UCc1lI',       # Observed class
+                    'img[data-qa="productImage"]'
+                ]
+                for sel in img_selectors:
+                    img_tag = soup.select_one(sel)
+                    if img_tag:
+                        src = img_tag.get('src') or img_tag.get('data-src')
+                        if src and src.startswith('http'):
+                            img = src
+                            break
 
             # Dimensions
             dimensions = extract_dimensions(soup)
@@ -151,26 +212,44 @@ def scrape_product(url):
     return None
 
 def extract_dimensions(soup):
-    # Check specifications table
-    # Flipkart uses tables with classes like _14cfVK ensuring rows are div._1s_Smc or tr._1s_Smc
-    
-    # Text search first as structure varies wildly
-    # Look for "Dimensions", "Width", "Height", "Depth" in table/div rows
+    # Look for specification sections with dimension-related content
+    # Avoid footer/navigation content by being more selective
     
     candidates = []
     
-    # Select all rows in specs
-    rows = soup.select('div.row') or soup.select('tr')
+    # Look for spec titles/labels that contain dimension keywords
+    spec_labels = soup.find_all(['div', 'span', 'td', 'th'], 
+                                text=lambda t: t and any(kw in t.lower() for kw in ['dimension', 'width', 'height', 'depth', 'length', 'size']))
     
-    for row in rows:
-        text = row.get_text(separator=' ').strip()
-        lower_text = text.lower()
-        if 'dimension' in lower_text or ('width' in lower_text and 'height' in lower_text) or ('mm' in lower_text and 'x' in lower_text):
-             # Try to clean it up
-             # Usually "Width: 10cm"
-             candidates.append(text)
+    for label_elem in spec_labels:
+        # Get parent context to find the associated value
+        parent = label_elem.parent
+        if parent:
+            # Look for sibling or nearby element with the actual value
+            text = label_elem.get_text(strip=True)
+            lower_text = text.lower()
+            
+            # If this is a label (like "Dimensions:"), try to get the value from next element
+            if any(x in lower_text for x in ['dimension', 'width', 'height', 'depth', 'length', 'size']):
+                # Get text from parent or siblings
+                for sibling in parent.find_all(['div', 'span', 'td']):
+                    sibling_text = sibling.get_text(strip=True)
+                    # Filter out navigation/brand text - should have measurements or numbers
+                    if any(measure in sibling_text.lower() for measure in ['cm', 'mm', 'inch', 'ft', 'x ', ' x ', 'l x w x h']):
+                        candidates.append(sibling_text)
+                    elif any(char.isdigit() for char in sibling_text):  # Has numbers
+                        # Avoid long text that looks like page content
+                        if len(sibling_text) < 100 and not any(nav_word in sibling_text.lower() 
+                             for nav_word in ['brand directory', 'most searched', 'top stories', 'read more', 'online']):
+                            candidates.append(sibling_text)
     
-    if candidates:
-        return " | ".join(candidates[:2]) # return top 2 relevant lines
+    # Clean and deduplicate
+    unique_candidates = []
+    for c in candidates:
+        if c not in unique_candidates and len(c) < 150:  # Reasonable length for dimension specs
+            unique_candidates.append(c)
+    
+    if unique_candidates:
+        return " | ".join(unique_candidates[:3])  # Return up to 3 relevant spec lines
 
     return 'NA'
